@@ -4,49 +4,108 @@ from nested_inlines.admin import NestedModelAdmin, NestedTabularInline, NestedSt
 
 from models import A, B, C
 
+# import pdb
+
 class OwnerException(Exception):
     pass
 
-class CInline(NestedTabularInline):
+class MissingOwnerException(Exception):
+    pass
+
+class CInline(NestedStackedInline):
     model = C
     exclude = ('id', 'owner')
     max_num = 1
-    extra = 0
+    extra = 1
 
     def get_readonly_fields(self, request, obj=None):
-        # import pdb ; pdb.set_trace()
-        fieldnames = [x.name for x in self.model._meta.fields]
-        print "GET_READONLY_FIELDS C: ", obj
+        if request.user.is_superuser:
+            return ()
+
+        if not hasattr(request, '_gem_owner_id') or not request._gem_owner_id:
+            raise MissingOwnerException('CInline missing owner')
+
+        # pdb.set_trace()
+        fieldnames = tuple([x.name for x in self.model._meta.fields])
+
+        if "owner" in fieldnames and "owner" not in self.exclude:
+            plus_owner = ("owner",)
+        else:
+            plus_owner = ()
+
+        if request._gem_owner_id == request.user.id:
+            # print "PRINTTTTOWN: ", plus_owner
+            return plus_owner
+
+        self.can_delete = False
+        # pdb.set_trace()
+        # print "GET_READONLY_FIELDS C: ", obj
 
         if hasattr(self, "exclude") and self.exclude is not None:
-            return tuple( set(fieldnames) - set(self.exclude) )
+            return tuple( set(fieldnames + plus_owner) - set(self.exclude) )
         else:
-            return tuple(fieldnames)
+            return tuple(set(fieldnames + plus_owner))
+
+    def __getattribute__off(self, name):
+        cc = object.__getattribute__(self, name)
+        if callable(cc):
+            print "CInline call:   %s" % name
+        else:
+            print "CInline access: %s" % name
+        return cc
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            self.exclude = ('id')
+        return super(CInline, self).has_add_permission(request)
+
 
 class BInline(NestedStackedInline):
     model = B
     exclude = ('id', 'owner')
     inlines = [CInline,]
     max_num = 1
-    extra = 0
+    extra = 1
 
     def get_readonly_fields(self, request, obj=None):
-        fieldnames = [x.name for x in self.model._meta.fields]
-        # import pdb ; pdb.set_trace()
-        print "GET_READONLY_FIELDS B: ", obj
+        if request.user.is_superuser:
+            return ()
+
+        if not hasattr(request, '_gem_owner_id') or not request._gem_owner_id:
+            raise MissingOwnerException('BInline missing owner')
+
+        fieldnames = tuple([x.name for x in self.model._meta.fields])
+
+        if "owner" in fieldnames and "owner" not in self.exclude:
+            plus_owner = ("owner",)
+        else:
+            plus_owner = ()
+
+        if request._gem_owner_id == request.user.id:
+            # print "PRINTTTTOWN: ", plus_owner
+            return tuple(plus_owner)
+        # pdb.set_trace()
+        # print "GET_READONLY_FIELDS B: ", obj
+
+        self.can_delete = False
 
         if hasattr(self, "exclude") and self.exclude is not None:
-            return tuple( set(fieldnames) - set(self.exclude) )
+            return tuple( set(fieldnames + plus_owner) - set(self.exclude) )
         else:
-            return tuple(fieldnames)
+            return tuple(set(fieldnames + plus_owner))
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            self.exclude = ('id')
+        return super(BInline, self).has_add_permission(request)
 
 class AAdmin(NestedModelAdmin):
-    exclude = ('id', 'owner')
+    exclude = ('id',)
     inlines = [BInline,]
     max_num = 1
     extra = 0
 
-    def save_model_off(self, request, obj, form, change):        
+    def save_model(self, request, obj, form, change):
         print "save_model override (A) change: ", ("TRUE" if change else "FALSE")
         if change:
             print "OWNED: ", ("YES" if obj.is_owned_by(request.user, include_superuser=True) else "NO")
@@ -64,7 +123,58 @@ class AAdmin(NestedModelAdmin):
         super(AAdmin, self).save_model(request, obj, form, change)
 
 
-    def save_formset_off(self, request, form, formset, change):
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            self.exclude = ('id')
+        return super(AAdmin, self).has_add_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        if not obj or obj.is_owned_by(request.user, include_superuser=True):
+            return True
+        else:
+            return False
+
+
+    def get_readonly_fields(self, request, obj=None):
+        # pdb.set_trace()
+        if request.user.is_superuser:
+            return ()
+
+        if obj:
+            if hasattr(obj, "owner"):
+                request._gem_owner_id = obj.owner.id
+            else:
+                request._gem_owner_id = None
+        else:
+            request._gem_owner_id = request.user.id
+
+        # if superuser:
+        #     return ()
+
+        # OLD OK fieldnames = tuple([x.name for x in self.model._meta.fields])
+        fieldnames = tuple( set([x.name for x in self.model._meta.fields]) - set(self.exclude))
+        # print "FNA", fieldnames
+        if "owner" in fieldnames and "owner" not in self.exclude:
+            plus_owner = ("owner",)
+        else:
+            plus_owner = ()
+
+        if obj is None or obj.owner.id == request.user.id:
+            # print "PRINTTTTOWN: ", plus_owner
+            return tuple(plus_owner)
+
+        self.can_delete = False
+
+        # pdb.set_trace()
+        # print "GET_READONLY_FIELDS A: ", obj
+
+        if hasattr(self, "exclude") and self.exclude is not None:
+            print "PRINTTTT: ", tuple( set(fieldnames + plus_owner) - set(self.exclude))
+            return tuple( set(fieldnames + plus_owner) - set(self.exclude) )
+        else:
+            return tuple(set(fieldnames + plus_owner))
+
+    def save_formset(self, request, form, formset, change):
         """
         Given an inline formset save it to the database.
         """
@@ -72,13 +182,11 @@ class AAdmin(NestedModelAdmin):
 
         instances = formset.save(commit=False)
         for instance in instances:
-            print "instance: ", instance
-            # import pdb ; pdb.set_trace()
-            
-            if hasattr(instance, "owner_id"):
-                instance.owner_id = request._gem_custom
+            # cascading ownership from first ancestor just for normal users
+            if not request.user.is_superuser:
+                if hasattr(instance, "owner_id"):
+                    instance.owner_id = request._gem_custom
             instance.save()
-        # formset.save()
         formset.save_m2m()
 
         # this save_m2m arrives from an official django example:
@@ -97,20 +205,6 @@ class AAdmin(NestedModelAdmin):
                 for nested_formset in form.nested_formsets:
                     self.save_formset(request, form, nested_formset, change)
 
-    def has_add_permission(self, request, obj=None):
-        return False
 
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-    def get_readonly_fields(self, request, obj=None):
-        # import pdb ; pdb.set_trace()
-        fieldnames = [x.name for x in self.model._meta.fields]
-        print "GET_READONLY_FIELDS A: ", obj
-
-        if hasattr(self, "exclude") and self.exclude is not None:
-            return tuple( set(fieldnames) - set(self.exclude) )
-        else:
-            return tuple(fieldnames)
 
 admin.site.register(A, AAdmin)
