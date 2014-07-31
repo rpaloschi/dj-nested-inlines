@@ -13,13 +13,13 @@ class MissingOwnerException(Exception):
     pass
 
 
-class OwnedNestedStackedInline(NestedStackedInline):
+class OwnedNestedInline(object):
     def get_readonly_fields(self, request, obj=None):
         if request.user.is_superuser:
             return ()
 
         if not hasattr(request, '_gem_owner_id') or not request._gem_owner_id:
-            raise MissingOwnerException('OwnedNestedStackedInline missing owner')
+            raise MissingOwnerException('OwnedNestedInline missing owner')
 
         fieldnames = tuple([x.name for x in self.model._meta.fields])
 
@@ -44,10 +44,10 @@ class OwnedNestedStackedInline(NestedStackedInline):
     def has_add_permission(self, request):
         if request.user.is_superuser:
             self.exclude = ('id',)
-        return super(OwnedNestedStackedInline, self).has_add_permission(request)
+        return super(OwnedNestedInline, self).has_add_permission(request)
 
 
-class CInline(OwnedNestedStackedInline):
+class CInline(OwnedNestedInline, NestedStackedInline):
     model = C
     exclude = ('id', 'owner')
     max_num = 1
@@ -63,7 +63,7 @@ class CInline(OwnedNestedStackedInline):
         return cc
 
 
-class BInline(OwnedNestedStackedInline):
+class BInline(OwnedNestedInline, NestedStackedInline):
     model = B
     exclude = ('id', 'owner')
     inlines = [CInline,]
