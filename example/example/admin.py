@@ -56,7 +56,7 @@ class CInline(NestedStackedInline):
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
-            self.exclude = ('id')
+            self.exclude = ('id',)
         return super(CInline, self).has_add_permission(request)
 
 
@@ -96,7 +96,7 @@ class BInline(NestedStackedInline):
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
-            self.exclude = ('id')
+            self.exclude = ('id',)
         return super(BInline, self).has_add_permission(request)
 
 class AAdmin(NestedModelAdmin):
@@ -125,7 +125,7 @@ class AAdmin(NestedModelAdmin):
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
-            self.exclude = ('id')
+            self.exclude = ('id',)
         return super(AAdmin, self).has_add_permission(request)
 
     def has_delete_permission(self, request, obj=None):
