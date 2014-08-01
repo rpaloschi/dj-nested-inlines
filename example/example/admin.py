@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from nested_inlines.admin import NestedModelAdmin, NestedTabularInline, NestedStackedInline
 
-from models import A, B, C
+from models import A, B, C, FuncDistrShape
 
 # import pdb
 
@@ -71,11 +71,22 @@ class BInline(OwnedNestedInline, NestedStackedInline):
     extra = 1
 
 
-class AAdmin(NestedModelAdmin):
-    exclude = ('id',)
-    inlines = [BInline,]
-    max_num = 1
-    extra = 0
+class OwnedAdmin(object):
+    def change_view(self, request, *args, **kwargs):
+        if '_saveasnew' in request.POST:
+            # custom logic for save as new
+            print "I am saved as new", args
+            #
+            #  NOTE:
+            #
+            #    _saveasnew is just an experiment, we can use a custom
+            #    button for this purpose.
+            #
+            #    mangle request.POST to clean mandatory fields required
+            #      by the special clone listed in vuln. specifications
+            #
+            del(request.POST['name_a'])
+        return super(OwnedAdmin, self).change_view(request, *args, **kwargs)
 
     def save_model(self, request, obj, form, change):
         print "save_model override (A) change: ", ("TRUE" if change else "FALSE")
@@ -84,7 +95,7 @@ class AAdmin(NestedModelAdmin):
             if not obj.is_owned_by(request.user, include_superuser=True):
                 raise ValidationError("ototo")
 
-        if not change:
+        if not change and obj.owner_id is None:
             obj.owner_id = request.user.id
         else:
             if not obj.owner_id:
@@ -92,13 +103,14 @@ class AAdmin(NestedModelAdmin):
 
         # ugly but works
         request._gem_custom = obj.owner_id
-        super(AAdmin, self).save_model(request, obj, form, change)
+        super(OwnedAdmin, self).save_model(request, obj, form, change)
 
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             self.exclude = ('id',)
-        return super(AAdmin, self).has_add_permission(request)
+            self.save_as = True
+        return super(OwnedAdmin, self).has_add_permission(request)
 
     def has_delete_permission(self, request, obj=None):
         if not obj or obj.is_owned_by(request.user, include_superuser=True):
@@ -150,7 +162,7 @@ class AAdmin(NestedModelAdmin):
         Given an inline formset save it to the database.
         """
         print "save_formset override (A) ", request._gem_custom
-
+        # pdb.set_trace()
         instances = formset.save(commit=False)
         for instance in instances:
             # cascading ownership from first ancestor just for normal users
@@ -177,5 +189,19 @@ class AAdmin(NestedModelAdmin):
                     self.save_formset(request, form, nested_formset, change)
 
 
+class AAdmin(OwnedAdmin, NestedModelAdmin):
+    exclude = ('id',)
+    inlines = [BInline,]
+    max_num = 1
+    extra = 0
+    save_as = False
+
+class FuncDistrShapeAdmin(OwnedAdmin, admin.ModelAdmin):
+#    exclude = ('id',)
+    max_num = 1
+    extra = 0
+    save_as = False
+
 
 admin.site.register(A, AAdmin)
+admin.site.register(FuncDistrShape, FuncDistrShapeAdmin)
